@@ -23,6 +23,19 @@
     let debounceTimers = {};  // path -> timeout for debouncing fs.watch events
     let lastClickIndex = -1;  // For shift-click range selection
 
+    // Persist imported paths across panel reloads
+    function getImportedPaths() {
+        try { return JSON.parse(localStorage.getItem('pxf_importedPaths') || '[]'); }
+        catch (e) { return []; }
+    }
+    function markPathImported(filePath) {
+        var paths = getImportedPaths();
+        if (paths.indexOf(filePath) === -1) {
+            paths.push(filePath);
+            localStorage.setItem('pxf_importedPaths', JSON.stringify(paths));
+        }
+    }
+
     // DOM refs
     const fileGrid = document.getElementById('fileGrid');
     const emptyState = document.getElementById('emptyState');
@@ -38,6 +51,34 @@
     const binNameInput = document.getElementById('binName');
     const chkAutoImport = document.getElementById('chkAutoImport');
     const toast = document.getElementById('toast');
+    const modalOverlay = document.getElementById('modalOverlay');
+    const modalMessage = document.getElementById('modalMessage');
+    const modalCancel = document.getElementById('modalCancel');
+    const modalOK = document.getElementById('modalOK');
+
+    // ─── Custom Confirm Dialog ───
+
+    function showConfirm(message, callback) {
+        modalMessage.textContent = message;
+        modalOverlay.classList.add('open');
+        modalCancel.focus();
+
+        function cleanup() {
+            modalOverlay.classList.remove('open');
+            modalOK.removeEventListener('click', onOK);
+            modalCancel.removeEventListener('click', onCancel);
+            document.removeEventListener('keydown', onKey);
+        }
+        function onOK() { cleanup(); callback(true); }
+        function onCancel() { cleanup(); callback(false); }
+        function onKey(e) {
+            if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); onCancel(); }
+        }
+
+        modalOK.addEventListener('click', onOK);
+        modalCancel.addEventListener('click', onCancel);
+        document.addEventListener('keydown', onKey);
+    }
 
     // ─── Initialization ───
 
@@ -229,11 +270,14 @@
             scanRecursive(dirPath);
 
             // Restore preserved state
+            var importedPaths = getImportedPaths();
             files.forEach(function (f) {
                 var prev = prevState[f.path];
                 if (prev) {
                     f.imported = prev.imported;
                     f.thumbnailUrl = prev.thumbnailUrl;
+                } else if (importedPaths.indexOf(f.path) !== -1) {
+                    f.imported = true;
                 }
             });
 
@@ -272,6 +316,12 @@
                     if (existing) {
                         existing.size = stat2.size;
                         existing.mtime = stat2.mtime.getTime();
+                        // Re-queue thumbnail if it failed previously
+                        if (!existing.thumbnailUrl || existing.thumbnailUrl === 'placeholder') {
+                            existing.thumbnailUrl = null;
+                            thumbQueue.push(existing);
+                            processThumbQueue();
+                        }
                     } else {
                         var newFile = {
                             path: fullPath,
@@ -290,6 +340,7 @@
                         if (chkAutoImport.checked) {
                             doImport([fullPath]);
                             newFile.imported = true;
+                            markPathImported(fullPath);
                         }
                     }
 
@@ -363,19 +414,9 @@
     }
 
     function updateCardThumbnail(file) {
-        var card = document.querySelector('[data-path="' + CSS.escape(file.path) + '"]');
-        if (!card) return;
-
-        var container = card.querySelector('.thumb-img, .thumb-placeholder');
-        if (!container) return;
-
-        if (file.thumbnailUrl && file.thumbnailUrl !== 'placeholder') {
-            var img = document.createElement('img');
-            img.className = 'thumb-img';
-            img.src = file.thumbnailUrl;
-            img.alt = file.name;
-            container.replaceWith(img);
-        }
+        // Re-render the full grid to ensure thumbnail is shown.
+        // DOM patching is unreliable when multiple events rebuild the grid concurrently.
+        renderGrid();
     }
 
     // ─── Rendering ───
@@ -423,9 +464,19 @@
             // Double-click to import
             card.addEventListener('dblclick', function (e) {
                 e.preventDefault();
-                doImport([file.path]);
-                file.imported = true;
-                renderGrid();
+                function doIt() {
+                    doImport([file.path]);
+                    file.imported = true;
+                    markPathImported(file.path);
+                    renderGrid();
+                }
+                if (file.imported) {
+                    showConfirm('"' + file.name + '" has already been imported. Import again?', function (ok) {
+                        if (ok) doIt();
+                    });
+                } else {
+                    doIt();
+                }
             });
 
             fileGrid.appendChild(card);
@@ -446,9 +497,10 @@
             // Toggle select
             files[index].selected = !files[index].selected;
         } else {
-            // Single select (deselect others)
+            // Single click: toggle if already the only selection, otherwise select just this one
+            var wasSelected = files[index].selected;
             files.forEach(function (f) { f.selected = false; });
-            files[index].selected = true;
+            files[index].selected = !wasSelected;
         }
 
         lastClickIndex = index;
@@ -482,19 +534,31 @@
     // ─── Import ───
 
     function importSelected() {
-        var selectedPaths = files.filter(function (f) { return f.selected; }).map(function (f) { return f.path; });
-        if (selectedPaths.length === 0) return;
+        var selectedFiles = files.filter(function (f) { return f.selected; });
+        if (selectedFiles.length === 0) return;
 
-        doImport(selectedPaths);
+        function doIt() {
+            var selectedPaths = selectedFiles.map(function (f) { return f.path; });
+            doImport(selectedPaths);
+            files.forEach(function (f) {
+                if (f.selected) {
+                    f.imported = true;
+                    markPathImported(f.path);
+                    f.selected = false;
+                }
+            });
+            renderGrid();
+        }
 
-        // Mark as imported
-        files.forEach(function (f) {
-            if (f.selected) {
-                f.imported = true;
-                f.selected = false;
-            }
-        });
-        renderGrid();
+        var alreadyImported = selectedFiles.filter(function (f) { return f.imported; });
+        if (alreadyImported.length > 0) {
+            var msg = alreadyImported.length === 1
+                ? '"' + alreadyImported[0].name + '" has already been imported. Import again?'
+                : alreadyImported.length + ' of the selected clips have already been imported. Import again?';
+            showConfirm(msg, function (ok) { if (ok) doIt(); });
+        } else {
+            doIt();
+        }
     }
 
     function doImport(pathsArray) {

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>pxf Proxy Importer</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="header-title">
+            <div class="logo">P</div>
+            pxf Proxies
+        </div>
+        <button class="btn-icon" id="btnSettings" title="Settings">&#9881;</button>
+    </div>
+
+    <!-- Settings Panel -->
+    <div class="settings" id="settingsPanel">
+        <label>Watch Folder</label>
+        <div class="folder-input-row">
+            <input type="text" id="folderPath" placeholder="Select a folder to watch...">
+            <button class="btn-small" id="btnBrowse">Browse</button>
+        </div>
+        <div class="settings-option">
+            <input type="checkbox" id="chkCreateBin">
+            <label for="chkCreateBin">Import into bin:</label>
+            <input type="text" class="bin-name-input" id="binName" value="pxf Proxies" placeholder="Bin name">
+        </div>
+        <div class="settings-option">
+            <input type="checkbox" id="chkAutoImport">
+            <label for="chkAutoImport">Auto-import new proxies</label>
+        </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div class="watch-indicator" id="watchIndicator"></div>
+        <span id="statusText">No folder selected</span>
+    </div>
+
+    <!-- File Grid -->
+    <div class="file-grid" id="fileGrid">
+        <div class="empty-state" id="emptyState">
+            <div class="empty-icon">&#128193;</div>
+            <p>No proxy files found</p>
+            <p style="font-size:10px; color:#555;">Click the gear icon to set a watch folder</p>
+        </div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+        <span class="selection-count" id="selectionCount"></span>
+        <button class="btn-import" id="btnImport" disabled>Import Selected</button>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script src="js/CSInterface.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
